@@ -15,6 +15,9 @@ MemoryCaptures/
 Assets/BundleResource/LuaScripts
 Assets/BundleResource/LuaScripts.meta
 
+Assets/Plugins/
+Assets/Plugins.meta
+
 /*.csproj
 /*.sln
 /*.user
