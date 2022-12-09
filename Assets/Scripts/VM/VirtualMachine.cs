@@ -6,6 +6,13 @@ using UnityEngine;
 /// </summary>
 public class VirtualMachine
 {
+    private enum VMState
+    {
+        Ready,
+        Running,
+        Finished,
+    }
+
     private readonly int MaxSize = 128;
 
     /// <summary>
@@ -17,7 +24,7 @@ public class VirtualMachine
         ShowPaging = false, ElementColor = "StackColor")]
     [LabelText("堆栈")]
     [ShowInInspector]
-    public int[] Stack { get; set; }
+    public int[] ParamStack { get; set; }
 
     /// <summary>
     /// 参数堆栈容量。
@@ -36,15 +43,30 @@ public class VirtualMachine
     /// </summary>
     private int indexOfByteCode = -1;
 
+    [PropertyOrder(-1)]
+    [EnumToggleButtons]
+    [ShowInInspector]
+    private VMState State { get; set; }
+
+    private bool IsStateCanInterpretStep
+    {
+        get { return State == VMState.Ready || State == VMState.Running; }
+    }
+
+    private bool IsStateCanInterpretAll
+    {
+        get { return State == VMState.Ready; }
+    }
+
     public VirtualMachine()
     {
-        Stack = new int[MaxSize];
+        ParamStack = new int[MaxSize];
     }
 
     public VirtualMachine(int maxSize)
     {
         MaxSize = maxSize;
-        Stack = new int[this.MaxSize];
+        ParamStack = new int[this.MaxSize];
     }
 
     /// <summary>
@@ -53,57 +75,72 @@ public class VirtualMachine
     /// <param name="byteCodes"></param>
     public void SetByteCodes(int[] byteCodes)
     {
-        if (-1 == indexOfByteCode)
+        State = VMState.Ready;
+        Clear();
+
+        ByteCode = byteCodes;
+    }
+
+    /// <summary>
+    /// 解释执行所有字节码
+    /// </summary>
+    [Button(ButtonSizes.Medium)]
+    [EnableIf("IsStateCanInterpretAll")]
+    public void InterpretAll()
+    {
+        if (IsStateCanInterpretAll)
         {
-            ByteCode = byteCodes;
-            indexOfByteCode = 0;
+            State = VMState.Running;
+            for (indexOfByteCode = 0; indexOfByteCode < ByteCode.Length; indexOfByteCode++)
+            {
+                var success = InterpretCurrentInstruction();
+                if (!success)
+                {
+                    break;
+                }
+            }
+
+            indexOfByteCode = -1;
+            State = VMState.Finished;
         }
         else
         {
-            Debug.LogError("有未执行完的代码。");
+            Debug.LogError($"Interpret when state {State}");
         }
     }
 
     /// <summary>
-    /// 解释执行字节码
+    /// 单步调试执行字节码。
     /// </summary>
-    public void InterpretAll()
-    {
-        for (indexOfByteCode = 0; indexOfByteCode < ByteCode.Length; indexOfByteCode++)
-        {
-            Interpret();
-        }
-
-        indexOfByteCode = -1;
-    }
-
+    [Button(ButtonSizes.Medium)]
+    [EnableIf("IsStateCanInterpretStep")]
     public void InterpretStep()
     {
-        if (-1 == indexOfByteCode)
+        if (IsStateCanInterpretStep)
         {
-            return;
-        }
-        Interpret();
-        indexOfByteCode++;
-    }
+            if (null == ByteCode || 0 == ByteCode.Length)
+            {
+                return;
+            }
 
-    private void Interpret()
-    {
-        if (-1 == indexOfByteCode)
-        {
-            return;
+            indexOfByteCode++;
+            var success = InterpretCurrentInstruction();
+            if (!success || indexOfByteCode == ByteCode.Length)
+            {
+                State = VMState.Finished;
+            }
         }
-        var byteCode = ByteCode[indexOfByteCode];
-        var instruction = GetInstruction(byteCode);
-        instruction.Init(this);
-        instruction.Interpret(ByteCode, ref indexOfByteCode);
+        else
+        {
+            Debug.LogError($"Interpret when state {State}");
+        }
     }
 
     /// <summary>
     /// 参数入栈。
     /// </summary>
     /// <param name="value"></param>
-    public void Push(int value)
+    public void PushParam(int value)
     {
         if (StackSize >= MaxSize)
         {
@@ -111,7 +148,7 @@ public class VirtualMachine
             return;
         }
 
-        Stack[StackSize] = value;
+        ParamStack[StackSize] = value;
         StackSize++;
     }
 
@@ -119,7 +156,7 @@ public class VirtualMachine
     /// 参数出栈。
     /// </summary>
     /// <returns></returns>
-    public int Pop()
+    public int PopParam()
     {
         if (StackSize <= 0)
         {
@@ -127,9 +164,53 @@ public class VirtualMachine
         }
 
         StackSize--;
-        var result = Stack[StackSize];
-        Stack[StackSize] = 0;
+        var result = ParamStack[StackSize];
+        ParamStack[StackSize] = 0;
         return result;
+    }
+    
+    /// <summary>
+    /// 执行当前位置的指令。
+    /// </summary>
+    private bool InterpretCurrentInstruction()
+    {
+        if (null == ByteCode || 0 > indexOfByteCode || ByteCode.Length <= indexOfByteCode)
+        {
+            Debug.LogError("Interpret failed!");
+            return false;
+        }
+
+        var byteCode = ByteCode[indexOfByteCode];
+        var instruction = GetInstruction(byteCode);
+        if (null != instruction)
+        {
+            if (indexOfByteCode + instruction.Length < ByteCode.Length)
+            {
+                instruction.Init(this);
+                instruction.Interpret(ByteCode, ref indexOfByteCode);
+                return true;
+            }
+
+            Debug.LogError($"Interpret failed! {instruction.GetType()} need {instruction.Length} bytes, but not enough");
+            return false;
+        }
+
+        Debug.LogError("Interpret failed! no instruction");
+        return false;
+    }
+
+    [Button(ButtonSizes.Medium)]
+    private void Clear()
+    {
+        ByteCode = null;
+        indexOfByteCode = -1;
+
+        for (var i = 0; i < ParamStack.Length; i++)
+        {
+            ParamStack[i] = 0;
+        }
+
+        StackSize = 0;
     }
 
     /// <summary>
@@ -137,22 +218,22 @@ public class VirtualMachine
     /// </summary>
     /// <param name="byteCode"></param>
     /// <returns></returns>
-    private BaseInstruction GetInstruction(int byteCode)
+    private Instruction GetInstruction(int byteCode)
     {
         switch (byteCode)
         {
             case 0:
                 return GetInstruction<PushParamInstruction>();
             case 1000:
-                return GetInstruction<SetHpBaseInstruction>();
+                return GetInstruction<SetHpInstruction>();
             case 1001:
-                return GetInstruction<PlaySoundBaseInstruction>();
+                return GetInstruction<PlaySoundInstruction>();
         }
 
-        return GetInstruction<EmptyBaseInstruction>();
+        return null;
     }
 
-    private T GetInstruction<T>() where T : BaseInstruction, new()
+    private T GetInstruction<T>() where T : Instruction, new()
     {
         return new T();
     }

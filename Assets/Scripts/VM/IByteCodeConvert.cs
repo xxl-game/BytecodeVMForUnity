@@ -1,9 +1,4 @@
-﻿public interface IByteCode
+﻿public interface IByteCodeProvider
 {
     int[] GetByteCode();
-}
-
-public interface IByteCodeConvert : IByteCode
-{
-    void FromByteCode(int[] byteCode);
 }

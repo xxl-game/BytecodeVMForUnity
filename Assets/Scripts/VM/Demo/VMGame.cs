@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class VMGame : MonoBehaviour
 {
-    public ByteCodeAsset byteCodeConvert;
+    public ByteCodeAsset byteCodeProviderConvert;
     
     [HorizontalGroup]
     [HideLabel]
